@@ -8,19 +8,25 @@
 
 [Live Demo](https://apidcloud.github.io/blurrier/)
 
-Small experiment to only decode video keyframes, reconstruct smooth scrub previews with 2D FFT spatial blur and 1D FFT temporal interpolation, entirely on the client-side. Built for live streaming and WebRTC.
+Decode sparse video keyframes, reconstruct smooth scrub previews with 2D FFT spatial blur and 1D FFT temporal interpolation, entirely on the client-side. Includes both an MP4 keyframe demo and a WebRTC loopback demo for sparse preview streaming.
 
 ## How it works
 
-1. **Spatial blur (2D FFT):** Each keyframe's Y-plane (grayscale) is downscaled to a power-of-2 preview size, transformed with a 2D FFT, lowpass-filtered (keeping ~15% of coefficients), and reconstructed via inverse FFT into a blurry but recognizable preview.
+The app currently exposes two delivery paths:
 
-2. **Temporal interpolation (1D FFT + Phase Shift Theorem):** Batches of keyframes are transformed along the time axis per-pixel. High-frequency temporal bins are discarded, and synthetic in-between frames are generated at fractional time offsets, producing 4x more frames than were actually decoded.
+1. **Local MP4 demo:** [MP4Box](https://github.com/gpac/mp4box.js) demuxes a local MP4, extracts keyframes, and feeds them into the blur + interpolation pipeline.
 
-The current demo uses [MP4Box](https://github.com/gpac/mp4box.js) to demux a local MP4 file and extract only keyframes, simulating a chunked delivery pipeline. The real target is **live streaming and WebRTC**: a server sends only keyframes (or a sparse subset of encoded chunks) and the client fills in the gaps with FFT interpolation.
+2. **WebRTC loopback demo:** Encoded keyframes are sent through a local DataChannel loopback, then reconstructed on the receiver with the same blur + interpolation pipeline.
+
+3. **Spatial blur (2D FFT):** Each keyframe's Y-plane (grayscale) is downscaled to a power-of-2 preview size, transformed with a 2D FFT, lowpass-filtered (keeping ~15% of coefficients), and reconstructed via inverse FFT into a blurry but recognizable preview.
+
+4. **Temporal interpolation (1D FFT + Phase Shift Theorem):** Batches of keyframes are transformed along the time axis per-pixel. High-frequency temporal bins are discarded, and synthetic in-between frames are generated at fractional time offsets, producing 4x more frames than were actually decoded.
+
+The broader target is **live streaming and WebRTC**: send only keyframes, or a sparse subset of encoded chunks, and let the client fill in the gaps with FFT-based interpolation.
 
 ## Limitations
 
-Grayscale only, and power-of-2 dimensions.
+Grayscale only, power-of-2 dimensions, and intentionally low-resolution preview output.
 
 ## Future work
 
