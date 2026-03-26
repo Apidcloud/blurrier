@@ -24,6 +24,26 @@
       margin-left: 20px;
     }
 
+    #credits {
+      position: absolute;
+      top: 0;
+      left: 0;
+      margin: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      text-align: left;
+      color: #666;
+    }
+
+    #credits p {
+      margin: 5px 0;
+    }
+
+    #credits a {
+      font-weight: 700;
+      color: #4983db;
+    }
+
     #controls {
       display: block;
       position: relative;
@@ -101,11 +121,22 @@
   <div class="grid-container">
     <div class="item1">
       <h1 id="pageTitle">Blurrier - Fourier Seek</h1>
+      <p style="max-width: 600px; margin: 0 auto;">Small experiment to decode only video keyframes, reconstruct smooth scrub previews with 2D FFT spatial blur and 1D FFT temporal interpolation, entirely on the client-side. Built for live streaming and WebRTC.</p>
+
+      <div id="credits">
+        <p>Inspired by <a href="https://x.com/kyndinfo" target="_blank">kyndinfo</a>'s article on <a href="https://kyndinfo.notion.site/Fourier-Series-caa91c112da043888cbe45f18392caff" target="_blank">Fourier Series</a></p>
+        <p>Using <a href="https://github.com/gpac/mp4box.js" target="_blank">MP4Box</a> for MP4 demuxing</p>
+      </div>
 
       <div id="controls">
         <div>
           <p>Pick Video</p>
-          <input type="file" id="videoPicker" accept="video/mp4" />
+          <select id="videoSelect">
+            <option value="example-videos/Big_Buck_Bunny_720_10s_5MB.mp4">Big Buck Bunny (720p, 5MB)</option>
+            <option value="example-videos/file_example_MP4_480_1_5MG.mp4" selected>Example MP4 (480p, 1.5MB)</option>
+            <option value="custom">Choose your own file...</option>
+          </select>
+          <input type="file" id="videoPicker" accept="video/mp4" style="display: none;" />
         </div>
         <div>
           <label for="seekBar" id="statusLabel">Waiting for video...</label>
@@ -130,6 +161,7 @@
     // must be power of 2
     const TEMPORAL_WINDOW = 8;
 
+    const videoSelect = document.getElementById("videoSelect");
     const picker = document.getElementById("videoPicker");
     const slider = document.getElementById("seekBar");
     const label = document.getElementById('statusLabel');
@@ -148,8 +180,31 @@
     let extractedFrames = [];
     let temporalBuffer = [];
 
+    videoSelect.addEventListener('change', onSelectChange);
     picker.addEventListener('change', onChangeFile);
     slider.addEventListener('input', onSeek);
+
+    function onSelectChange(e) {
+      const value = e.target.value;
+      if (value === 'custom') {
+        picker.style.display = '';
+        picker.click();
+        return;
+      }
+      picker.style.display = 'none';
+      loadExampleVideo(value);
+    }
+
+    async function loadExampleVideo(url) {
+      label.textContent = 'Loading example video...';
+      extractedFrames = [];
+      slider.disabled = true;
+
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const file = new File([blob], url.split('/').pop(), { type: 'video/mp4' });
+      processVideoFile(file);
+    }
 
     function onChangeFile(e) {
       const file = e.target.files[0];
@@ -162,6 +217,8 @@
 
       processVideoFile(file);
     }
+
+    loadExampleVideo(videoSelect.value);
 
     function onSeek(e) {
       const frameIndex = parseInt(e.target.value, 10);
