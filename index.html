@@ -3,16 +3,21 @@
 <head>
   <meta charset="utf-8">
   <title>Blurrier - Fourier Video Preview</title>
-
   <style>
     body, html, input {
       font-family: sans-serif;
       font-size: 11pt;
     }
 
-    #logisticExpression {
-      margin-left: 20px;
-      height: 30px;
+    canvas {
+      image-rendering: pixelated; 
+      image-rendering: crisp-edges;
+
+      max-width: 256px;
+      max-height: 256px;
+
+      background: #000;
+      border: 1px solid #444;
     }
 
     #pageTitle {
@@ -147,53 +152,416 @@
 
       <div id="controls">
         <div>
-          <p>Number of Vertices</p>
-          <input type="range" min="3" max="10" step="1" class="slider" onchange="verticesNumberRangeChange(this.value);" id="verticesNumberRange">
-          <div id="verticesRangeOutput"></div>
+          <p>Pick Video</p>
+          <input type="file" id="videoPicker" accept="video/mp4" />
+          <label for="seekBar" id="statusLabel">Waiting for video...</label>
+          <input type="range" id="seekBar" min="0" value="0" step="0.01" disabled style="with: 300px;" />
         </div>
         <div>
-          <p>Rule</p>
-          <input type="range" min="1" max="4" step="1" class="slider" onchange="ruleNumberRangeChange(this.value);" id="ruleNumberRange">
-          <div id="ruleRangeOutput"></div>
+          <canvas id="previewCanvas" />
         </div>
-        <div>
-          <p>Distance Factor</p>
-          <input type="range" min="0.1" max="0.9" step="0.01" class="slider" oninput="changeFactorDistanceOutput(this.value);" onchange="distanceFactorRangeChange(this.value);" id="distanceFactorRange">
-          <div id="factorDistanceOutput"></div>
-        </div>
-        <div>
-          <p>Iterations to step at once</p>
-          <input type="range" min="0" max="1000" step="10" class="slider" onchange="iterationsRangeChange(this.value);" id="iterationsRange">
-          <div id="iterationsRangeOutput"></div>
-        </div>
-        <button class="centerVertically" onclick="randomizeNTimes();">Iterate</button>
       </div>
-      <div id="rulesContainer">
-        <p class="rules">
-          Rule 1: picking one of the vertices and going into its direction (from previous iteration result) a factor of its distance (default 0.5)
-        </p>
-        <p class="rules">
-          Rule 2: rule 1, but unable to go towards the same vertex twice in a row
-        </p>
-        <p class="rules">
-          Rule 3: rule 1, but current chosen vertex cannot be 2 places away from the previous chosen vertex
-        </p>
-        <p class="rules">
-          Rule 4: rule 1, but if the same vertex has been chosen twice in a row, then the next cannot be its direct neighbour
-        </p>
-      </div>
-      <p id="currentNPoints"></p>
     </div>
 
-  <script>
-    window.onload = function(){
-      customLoad();
+  <script type="module">
+    import * as MP4Box from 'https://esm.sh/mp4box@2.3.0';
+
+    const PREVIEW_SIZE = 128;
+
+    const picker = document.getElementById("videoPicker");
+    const slider = document.getElementById("seekBar");
+    const label = document.getElementById('statusLabel');
+    const canvas = document.getElementById("previewCanvas");
+    const ctx = canvas.getContext("2d");
+
+    const rawCanvas = new OffscreenCanvas(1, 1); 
+    const rawCtx = rawCanvas.getContext('2d', { willReadFrequently: true });
+
+    const tinyCanvas = new OffscreenCanvas(PREVIEW_SIZE, PREVIEW_SIZE);
+    const tinyCtx = tinyCanvas.getContext('2d', { willReadFrequently: true });
+
+    let extractedFrames = [];
+
+    picker.addEventListener('change', onChangeFile);
+    slider.addEventListener('input', onSeek);
+
+    function onChangeFile(e) {
+      const file = e.target.files[0];
+      if (!file) {
+        return;
+      }
+
+      extractedFrames = [];
+      slider.disabled = true;
+
+      processVideoFile(file);
     }
 
-    function customLoad(){
-
+    function onSeek(e) {
+      const frameIndex = parseInt(e.target.value, 10);
+      drawFrameToCanvas(frameIndex);
     }
 
+    // simulate WebRTC/live streaming where we would get an encoded video chunk
+    function processVideoFile(file) {
+      const mp4BoxFile = MP4Box.createFile();
+
+      const decoder = new VideoDecoder({
+        output: async (frame) => {
+          const width = frame.displayWidth;
+          const height = frame.displayHeight;
+
+          // copy y-plane (grayscale)
+          const bufferSize = frame.allocationSize({ planeIndex: 0 });
+          const buffer = new ArrayBuffer(bufferSize);
+          const layout = await frame.copyTo(buffer, { planeIndex: 0 });
+
+          const pixels = new Uint8Array(buffer);
+
+          const rawFrameData = {
+            timestamp: frame.timestamp,
+            width,
+            height,
+            stride: layout[0].stride,
+            pixels,
+          };
+
+          console.log(`Blurring frame at ${Math.round(frame.timestamp / 1000)}ms...`);
+          const blurryPreview = createBlurryPreview(rawFrameData, 0.15);
+
+          extractedFrames.push({
+            timestamp: blurryPreview.timestamp,
+            width: blurryPreview.width,  
+            height: blurryPreview.height, 
+            stride: blurryPreview.width,   
+            pixels: blurryPreview.blurryPixels,
+          });
+
+          // decoders dont guarantee the order
+          extractedFrames.sort((a, b) => a.timestamp - b.timestamp);
+
+          label.textContent = `Extracted ${extractedFrames.length} keyframes`;
+          slider.max = extractedFrames.length - 1;
+          slider.disabled = false;
+
+          if (extractedFrames.length === 1) {
+            drawFrameToCanvas(0);
+          }
+
+          frame.close();
+        },
+        error: (e) => {
+          console.error("Decoder error", e);
+        }
+      });
+
+      // demuxer
+      mp4BoxFile.onReady = (info) => {
+        const videoTrack = info.videoTracks[0];
+       
+        let description = null;
+        const track = mp4BoxFile.getTrackById(videoTrack.id);
+        
+        for (const entry of track.mdia.minf.stbl.stsd.entries) {
+          // look for the codec configuration box (H.264, HEVC, VP9, or AV1)
+          const box = entry.avcC || entry.hvcC || entry.vpcC || entry.av1C;
+          if (box) {
+            const stream = new MP4Box.DataStream(undefined, 0, MP4Box.DataStream.BIG_ENDIAN);
+            box.write(stream);
+            // WebCodecs wants the raw data, so we slice off the 8-byte MP4 box header
+            description = new Uint8Array(stream.buffer, 8); 
+            break;
+          }
+        }
+
+        decoder.configure({
+          codec: videoTrack.codec,
+          codedWidth: videoTrack.track_width,
+          codedHeight: videoTrack.track_height,
+          description,
+        });
+
+        mp4BoxFile.setExtractionOptions(videoTrack.id);
+        mp4BoxFile.start();
+      };
+
+      mp4BoxFile.onSamples = (id, user, samples) => {
+        for (const sample of samples) {
+          // only decode keyframes to keep lightweight
+          if (sample.is_sync) {
+            const chunk = new EncodedVideoChunk({
+              type: 'key',
+              timestamp: (sample.cts * 1000000) / sample.timescale,
+              duration: (sample.duration * 1000000) / sample.timescale,
+              data: sample.data
+            });
+            decoder.decode(chunk);
+          }
+        }
+      };
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const arrayBuffer = e.target.result;
+        arrayBuffer.fileStart = 0;
+        mp4BoxFile.appendBuffer(arrayBuffer);
+        mp4BoxFile.flush();
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function drawFrameToCanvas(index) {
+      if (!extractedFrames[index]) {
+        return;
+      }
+
+      const { width, height, stride, pixels } = extractedFrames[index];
+
+      canvas.width = width;
+      canvas.height = height;
+      const imageData = ctx.createImageData(width, height);
+
+      // map 1d grayscale array to 1d rgba canvas array
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const luma = pixels[(y * stride) + x];
+          const idx = (y * width + x) * 4;
+          imageData.data[idx] = luma;     
+          imageData.data[idx + 1] = luma;
+          imageData.data[idx + 2] = luma;
+          imageData.data[idx + 3] = 255;
+        }
+      }
+      ctx.putImageData(imageData, 0, 0);
+    }
+
+    function createBlurryPreview(frameData, keepFraction = 0.15) {
+      const { width, height, stride, pixels } = frameData;
+
+      // compute preview dimensions that fit within PREVIEW_SIZE while preserving aspect ratio
+      const scale = Math.min(PREVIEW_SIZE / width, PREVIEW_SIZE / height);
+      const pw = Math.round(width * scale);
+      const ph = Math.round(height * scale);
+
+      rawCanvas.width = width;
+      rawCanvas.height = height;
+      const rawImgData = rawCtx.createImageData(width, height);
+  
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const luma = pixels[(y * stride) + x];
+          const idx = (y * width + x) * 4;
+          rawImgData.data.set([luma, luma, luma, 255], idx);
+        }
+      }
+      rawCtx.putImageData(rawImgData, 0, 0);
+
+      tinyCanvas.width = pw;
+      tinyCanvas.height = ph;
+      tinyCtx.drawImage(rawCanvas, 0, 0, width, height, 0, 0, pw, ph);
+  
+      const tinyPixels = tinyCtx.getImageData(0, 0, pw, ph).data;
+
+      const grid = [];
+      for (let y = 0; y < ph; y++) {
+        const row = [];
+        for (let x = 0; x < pw; x++) {
+          const luma = tinyPixels[(y * pw + x) * 4];
+          row.push(new Complex(luma, 0));
+        }
+        grid.push(row);
+      }
+
+      const frequencies = naiveDFT2D(grid);
+
+      // lowpass filter
+      const keepX = Math.floor(pw * keepFraction);
+      const keepY = Math.floor(ph * keepFraction);
+      for (let y = 0; y < ph; y++) {
+        for (let x = 0; x < pw; x++) {
+          if ((x > keepX && x < pw - keepX) || (y > keepY && y < ph - keepY)) {
+            frequencies[y][x] = new Complex(0, 0);
+          }
+        }
+      }
+
+      const blurryGrid = naiveIDFT2D(frequencies);
+
+      const finalPixels = new Uint8ClampedArray(pw * ph);
+      for (let y = 0; y < ph; y++) {
+        for (let x = 0; x < pw; x++) {
+          finalPixels[y * pw + x] = Math.max(0, Math.min(255, blurryGrid[y][x].re));
+        }
+      }
+
+      return {
+        timestamp: frameData.timestamp,
+        width: pw, 
+        height: ph,
+        blurryPixels: finalPixels
+      };
+    }
+
+    class Complex {
+      constructor(re, im = 0) {
+        this.re = re;
+        this.im = im;
+      }
+
+      add(other) {
+        return new Complex(this.re + other.re, this.im + other.im);
+      }
+
+      // (a + bi) * (c + di) = (ac - bd) + (ad + bc)i
+      mul(other) {
+        return new Complex(
+          this.re * other.re - this.im * other.im,
+          this.re * other.im + this.im * other.re,
+        );
+      }
+    }
+
+    // slow version O(N^2)
+    // let 
+    // N: total number of samples
+    // k: current frequency bin index (0..N-1)
+    // n: current time/spatial sample index (0..N-1)
+    // using Euler's formula e^-i*theta = cos(theta) - i*sin(theta)
+    // this becomes:
+    // X[k] = SUM(n=0 to N-1) { x[n] * e^(-i * 2*PI * k * n / N) }
+    // where theta = (2 * PI * k * n) / N
+    function naiveDFT(input) {
+      const N = input.length;
+      const output = [];
+
+      for (let k = 0; k < N; k++) {
+        let sum = new Complex(0, 0);
+
+        for (let n = 0; n < N; n++) {
+          const theta = (2 * Math.PI * k * n) / N;
+
+          // create exponential using euler's formula
+          const w = new Complex(Math.cos(theta), -Math.sin(theta));
+
+          const term = input[n].mul(w);
+          sum = sum.add(term);
+        }
+        output.push(sum);
+      }
+
+      return output;
+    }
+
+    // const signal = [
+    //   new Complex(1), new Complex(1), 
+    //   new Complex(1), new Complex(1)
+    // ];
+    //
+    // console.log(naiveDFT(signal));
+
+    // very similar to the original thing; we only flip the euler sign and divide by N
+    // to scale the values back down to their original amplitude
+    // let
+    // N: total number of samples
+    // X[k] : The k-th frequency bin (Input)
+    // x[n] : The n-th sample of the reconstructed signal (Output)
+    // this becomes:
+    // x[n] = (1/N) * SUM(k=0 to N-1) { X[k] * e^(i * 2*PI * k * n / N) }
+    function naiveIDFT(input) {
+      const N = input.length;
+      const output = [];
+
+      for (let n = 0; n < N; n++) {
+        let sum = new Complex(0, 0);
+        for (let k = 0; k < N; k++) {
+          const theta = (2 * Math.PI * k * n) / N;
+
+          const w = new Complex(Math.cos(theta), Math.sin(theta));
+
+          const term = input[k].mul(w);
+          sum = sum.add(term);
+        }
+
+        // scale down by N
+        sum.re /= N;
+        sum.im /= N;
+
+        output.push(sum);
+      }
+
+      return output;
+    }
+
+    // const originalSignal = [
+    //   new Complex(1), new Complex(1), 
+    //   new Complex(1), new Complex(1)
+    // ];
+    //
+    // // forward Transform (Spatial Domain -> Frequency Domain)
+    // const frequencies = naiveDFT(originalSignal);
+    //
+    // // inverse Transform (Frequency Domain -> Spatial Domain)
+    // const reconstructedSignal = naiveIDFT(frequencies);
+    //
+    // console.log("Reconstructed Signal (Raw Complex Objects):");
+    // console.log(reconstructedSignal);
+    //
+    // const finalPixels = reconstructedSignal.map(c => Math.round(c.re));
+    // console.log("Final Reconstructed Pixels:", finalPixels);
+
+    function naiveDFT2D(grid) {
+      const height = grid.length;
+      const width = grid[0].length;
+
+      const rowResult = [];
+      for (let y = 0; y < height; y++) {
+        rowResult.push(naiveDFT(grid[y]));
+      }
+
+      const finalResult = new Array(height).fill(null).map(() => new Array(width));
+
+      for (let x = 0; x < width; x++) {
+        const column = [];
+        for (let y = 0; y < height; y++) {
+          column.push(rowResult[y][x]);
+        }
+
+        const colDFT = naiveDFT(column);
+
+        for (let y = 0; y < height; y++) {
+          finalResult[y][x] = colDFT[y];
+        }
+      }
+
+      return finalResult;
+    }
+
+    function naiveIDFT2D(grid) {
+      const height = grid.length;
+      const width = grid[0].length;
+
+      const rowResult = [];
+      for (let y = 0; y < height; y++) {
+        rowResult.push(naiveIDFT(grid[y]));
+      }
+
+      const finalResult = new Array(height).fill(null).map(() => new Array(width));
+
+      for (let x = 0; x < width; x++) {
+        const column = [];
+        for (let y = 0; y < height; y++) {
+          column.push(rowResult[y][x]);
+        }
+
+        const colIDFT = naiveIDFT(column);
+
+        for (let y = 0; y < height; y++) {
+          finalResult[y][x] = colIDFT[y];
+        }
+      }
+
+      return finalResult;
+    }
   </script>
 </body>
 </html>
