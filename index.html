@@ -475,16 +475,17 @@
       for (let i = 0; i < size; i++) {
         const freqs = batchFreqs[i];
 
-        const shifted = freqs.map((c, k) => {
+        // evaluate the IDFT directly at n = fractionalIndex (single sample):
+        // x[n] = (1/T) * SUM(k=0..T-1) X[k] * e^(i * 2 * PI * k * n / T)
+        // equivalent to phase-shifting all bins then running a full IFFT
+        // and reading result[0], but O(T) instead of O(T log T)
+        let sum = new Complex(0, 0);
+        for (let k = 0; k < T; k++) {
           const theta = (2 * Math.PI * k * fractionalIndex) / T;
           const rotation = new Complex(Math.cos(theta), Math.sin(theta));
-          return c.mul(rotation);
-        });
-
-        // inverse fft to get the value at this exact moment
-        const result = fftInverse(shifted);
-        // the first element is our interpolated value
-        pixels[i] = result[0].re;
+          sum = sum.add(freqs[k].mul(rotation));
+        }
+        pixels[i] = sum.re / T;
       }
       return pixels;
     }
