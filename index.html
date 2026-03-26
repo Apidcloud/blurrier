@@ -325,8 +325,15 @@
         if (temporalBuffer.length > 0) {
           console.log('Finalizing last batch of frames');
 
+          const realCount = temporalBuffer.length;
+          let mirror = 1;
           while (temporalBuffer.length < TEMPORAL_WINDOW) {
-            temporalBuffer.push(temporalBuffer[temporalBuffer.length - 1]);
+            // temporalBuffer.push(temporalBuffer[temporalBuffer.length - 1]) here would
+            // suffer from Gibbs-phenomenon ringing. We now handle that by mirror padding, so
+            // 5 real frames [0,1,2,3,4] now pads to [0,1,2,3,4,3,2,1] instead of [0,1,2,3,4,4,4,4]
+            const idx = Math.max(0, realCount - 1 - mirror);
+            temporalBuffer.push(temporalBuffer[idx]);
+            mirror++;
           }
 
           // const finalBatch = applyTemporalBlur(temporalBuffer);
