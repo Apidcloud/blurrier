@@ -339,9 +339,11 @@
       const { width, height, stride, pixels } = frameData;
 
       // compute preview dimensions that fit within PREVIEW_SIZE while preserving aspect ratio
+      // dimensions must be powers of 2 for the FFT
+      function nextPow2(v) { return Math.max(1, 1 << Math.ceil(Math.log2(v))); }
       const scale = Math.min(PREVIEW_SIZE / width, PREVIEW_SIZE / height);
-      const pw = Math.round(width * scale);
-      const ph = Math.round(height * scale);
+      const pw = nextPow2(Math.round(width * scale));
+      const ph = nextPow2(Math.round(height * scale));
 
       rawCanvas.width = width;
       rawCanvas.height = height;
@@ -372,7 +374,8 @@
         grid.push(row);
       }
 
-      const frequencies = naiveDFT2D(grid);
+      // const frequencies = naiveDFT2D(grid);
+      const frequencies = fft2D(grid);
 
       // lowpass filter
       const keepX = Math.floor(pw * keepFraction);
@@ -385,7 +388,8 @@
         }
       }
 
-      const blurryGrid = naiveIDFT2D(frequencies);
+      // const blurryGrid = naiveIDFT2D(frequencies);
+      const blurryGrid = fft2D(frequencies, true);
 
       const finalPixels = new Uint8ClampedArray(pw * ph);
       for (let y = 0; y < ph; y++) {
@@ -412,6 +416,10 @@
         return new Complex(this.re + other.re, this.im + other.im);
       }
 
+      sub(other) {
+        return new Complex(this.re - other.re, this.im - other.im);
+      }
+
       // (a + bi) * (c + di) = (ac - bd) + (ad + bc)i
       mul(other) {
         return new Complex(
@@ -426,12 +434,12 @@
     // N: total number of samples
     // k: current frequency bin index (0..N-1)
     // n: current time/spatial sample index (0..N-1)
-    // using Euler's formula e^-i*theta = cos(theta) - i*sin(theta)
+    // using Euler's formula e^(-i*theta) = cos(theta) - i*sin(theta)
     // this becomes:
     // X[k] = SUM(n=0 to N-1) { x[n] * e^(-i * 2*PI * k * n / N) }
     // where theta = (2 * PI * k * n) / N
-    function naiveDFT(input) {
-      const N = input.length;
+    function naiveDFT(samples) {
+      const N = samples.length;
       const output = [];
 
       for (let k = 0; k < N; k++) {
@@ -443,7 +451,7 @@
           // create exponential using euler's formula
           const w = new Complex(Math.cos(theta), -Math.sin(theta));
 
-          const term = input[n].mul(w);
+          const term = samples[n].mul(w);
           sum = sum.add(term);
         }
         output.push(sum);
@@ -467,8 +475,8 @@
     // x[n] : The n-th sample of the reconstructed signal (Output)
     // this becomes:
     // x[n] = (1/N) * SUM(k=0 to N-1) { X[k] * e^(i * 2*PI * k * n / N) }
-    function naiveIDFT(input) {
-      const N = input.length;
+    function naiveIDFT(samples) {
+      const N = samples.length;
       const output = [];
 
       for (let n = 0; n < N; n++) {
@@ -478,7 +486,7 @@
 
           const w = new Complex(Math.cos(theta), Math.sin(theta));
 
-          const term = input[k].mul(w);
+          const term = samples[k].mul(w);
           sum = sum.add(term);
         }
 
@@ -492,6 +500,93 @@
       return output;
     }
 
+    // FFT (O(N log N))
+    // because they are periodic, we can just calculate the 1st half
+    // let
+    // N: total number of samples in the current recursive iteration 
+    // evens: even-indexed samples
+    // odds: odd-indexed samples
+    // k: current frequency bin index (0..N/2 - 1)
+    // theta: (2 * PI * k) / N, representing the phase rotation
+    // twiddle: e^(-i * theta) * odds[k], representing the shifted odd component
+    // with the butterly/symmetry relationship:
+    // results[k] = evens[k] + twiddle
+    // results[k + N/2] = evens[k] - twiddle
+    function fft(samples) {
+      const N = samples.length;
+      if (N <= 1) {
+        return samples;
+      }
+
+      const evenSamples = [];
+      const oddSamples = [];
+      for (let n = 0; n < N; n++) {
+        if ((n & 1) === 0) {
+          evenSamples.push(samples[n]);
+        } else {
+          oddSamples.push(samples[n]);
+        }
+      }
+
+      const evens = fft(evenSamples);
+      const odds = fft(oddSamples);
+      
+      const results = new Array(N);
+      for (let k = 0; k < N/2; k++) {
+        const theta = (2 * Math.PI * k) / N;
+        // rotate the odd to align with the even results
+        const twiddle = new Complex(Math.cos(-theta), Math.sin(-theta)).mul(odds[k]);
+        
+        results[k] = evens[k].add(twiddle);
+        results[k + N/2] = evens[k].sub(twiddle);
+      }
+
+      return results;
+    }
+
+    // const signal = [
+    //   new Complex(1, 0), 
+    //   new Complex(1, 0), 
+    //   new Complex(1, 0), 
+    //   new Complex(1, 0)
+    // ];
+    //
+    // console.log("Testing FFT with [1, 1, 1, 1]:");
+    // const result = fft(signal);
+    //
+    // console.log("Expecting bin 0 with re: 4.00 im: 0.00, and the 3 other bins to have 0.00 everywhere");
+    // result.forEach((c, k) => {
+    //   console.log(`Bin ${k}: { re: ${c.re.toFixed(2)}, im: ${c.im.toFixed(2)} }`);
+    // });
+
+    function fft2D(grid, inverse = false) {
+      const rows = grid.length;
+      const cols = grid[0].length;
+
+      // if inverse, conjugate first, then fft, then conjugate and scale
+      if (inverse) {
+        grid = grid.map(row => row.map(c => new Complex(c.re, -c.im)));
+      }
+
+      let transformed = grid.map(row => fft(row));
+
+      // transpose
+      let transposed = transformed[0].map((_, colIdx) => transformed.map(row => row[colIdx]));
+
+      // fft on all columns (now rows)
+      let final = transposed.map(row => fft(row));
+
+      // transpose back
+      final = final[0].map((_, colIdx) => final.map(row => row[colIdx]));
+
+      if (inverse) {
+        return final.map(row => row.map(c => new Complex(c.re / (rows * cols), -c.im / (rows * cols))));
+      }
+
+      return final;
+    }
+
+    // quick test for forward -> inverse naive dft
     // const originalSignal = [
     //   new Complex(1), new Complex(1), 
     //   new Complex(1), new Complex(1)
