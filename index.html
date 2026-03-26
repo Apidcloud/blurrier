@@ -160,6 +160,9 @@
         <div>
           <canvas id="previewCanvas" />
         </div>
+        <div>
+          <canvas id="frequencyCanvas" />
+        </div>
       </div>
     </div>
 
@@ -179,6 +182,9 @@
 
     const tinyCanvas = new OffscreenCanvas(PREVIEW_SIZE, PREVIEW_SIZE);
     const tinyCtx = tinyCanvas.getContext('2d', { willReadFrequently: true });
+
+    const freqCanvas = document.getElementById('frequencyCanvas');
+    const freqCtx = freqCanvas.getContext('2d');
 
     let extractedFrames = [];
 
@@ -376,6 +382,8 @@
 
       // const frequencies = naiveDFT2D(grid);
       const frequencies = fft2D(grid);
+
+      drawFrequencyMap(frequencies);
 
       // lowpass filter
       const keepX = Math.floor(pw * keepFraction);
@@ -584,6 +592,39 @@
       }
 
       return final;
+    }
+
+    function drawFrequencyMap(frequencies) {
+      const height = frequencies.length;
+      const width = frequencies[0].length;
+
+      freqCanvas.width = width;
+      freqCanvas.height = height;
+      const imageData = freqCtx.createImageData(width, height);
+
+      const halfW = width >> 1;
+      const halfH = height >> 1;
+
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          // use fftshift to swap quadrants so DC is centered
+          const sy = (y + halfH) % height;
+          const sx = (x + halfW) % width;
+          const c = frequencies[sy][sx];
+          const mag = Math.sqrt(c.re * c.re + c.im * c.im);
+
+          // use log scale so we can see the dim stars
+          // formula: 255 * log(1 + mag) / log(1 + max_possible_mag)
+          const val = 20 * Math.log1p(mag);
+
+          const idx = (y * width + x) * 4;
+          imageData.data[idx] = val;
+          imageData.data[idx + 1] = val;
+          imageData.data[idx + 2] = val;
+          imageData.data[idx + 3] = 255;
+        }
+      }
+      freqCtx.putImageData(imageData, 0, 0);
     }
 
     // quick test for forward -> inverse naive dft
