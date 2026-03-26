@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Blurrier - Fourier Video Preview</title>
+  <title>Blurrier - Fourier Seek</title>
   <style>
     body, html, input {
       font-family: sans-serif;
@@ -148,14 +148,14 @@
 
   <div class="grid-container">
     <div class="item1">
-      <h1 id="pageTitle">Blurrier - Fourier Video Preview</h1>
+      <h1 id="pageTitle">Blurrier - Fourier Seek</h1>
 
       <div id="controls">
         <div>
           <p>Pick Video</p>
           <input type="file" id="videoPicker" accept="video/mp4" />
           <label for="seekBar" id="statusLabel">Waiting for video...</label>
-          <input type="range" id="seekBar" min="0" value="0" step="0.01" disabled style="with: 300px;" />
+          <input type="range" id="seekBar" min="0" value="0" step="1" disabled style="with: 300px;" />
         </div>
         <div>
           <canvas id="previewCanvas" />
@@ -169,9 +169,9 @@
   <script type="module">
     import * as MP4Box from 'https://esm.sh/mp4box@2.3.0';
 
-    const PREVIEW_SIZE = 128;
+    const PREVIEW_SIZE = 256;
     // must be power of 2
-    const TEMPORAL_WINDOW = 16;
+    const TEMPORAL_WINDOW = 8;
 
     const picker = document.getElementById("videoPicker");
     const slider = document.getElementById("seekBar");
@@ -237,16 +237,14 @@
 
           console.log(`Blurring frame at ${Math.round(frame.timestamp / 1000)}ms...`);
           const blurryPreview = createBlurryPreview(rawFrameData, 0.15);
-
           temporalBuffer.push(blurryPreview);
-          console.log('pushing', temporalBuffer.length);
 
           if (temporalBuffer.length === TEMPORAL_WINDOW) {
-            console.log('here');
-            label.textContent = 'Applying temporal blue to batch';
-
-            const smoothedBatch = applyTemporalBlur(temporalBuffer);
-            extractedFrames.push(...smoothedBatch);
+            // label.textContent = 'Applying temporal blur to batch';
+            // const smoothedBatch = applyTemporalBlur(temporalBuffer);
+            // extractedFrames.push(...smoothedBatch);
+            label.textContent = 'Applying temporal interpolation to batch';
+            const interpolatedBatch = applyTemporalInterpolation(temporalBuffer);
             // decoders dont guarantee the order
             extractedFrames.sort((a, b) => a.timestamp - b.timestamp);
 
@@ -255,7 +253,7 @@
             slider.max = extractedFrames.length - 1;
             slider.disabled = false;
 
-            if (extractedFrames.length === smoothedBatch.length) {
+            if (extractedFrames.length === interpolatedBatch.length) {
               drawFrameToCanvas(0);
             }
           }
@@ -298,6 +296,8 @@
       };
 
       mp4BoxFile.onSamples = (id, user, samples) => {
+        const syncCount = samples.filter(s => s.is_sync).length;
+        console.log(`onSamples: ${samples.length} total, ${syncCount} sync`);
         for (const sample of samples) {
           // only decode keyframes to keep lightweight
           if (sample.is_sync) {
@@ -329,7 +329,8 @@
             temporalBuffer.push(temporalBuffer[temporalBuffer.length - 1]);
           }
 
-          const finalBatch = applyTemporalBlur(temporalBuffer);
+          // const finalBatch = applyTemporalBlur(temporalBuffer);
+          const finalBatch = applyTemporalInterpolation(temporalBuffer);
           extractedFrames.push(...finalBatch);
           extractedFrames.sort((a, b) => a.timestamp - b.timestamp);
           slider.max = extractedFrames.length - 1;
@@ -376,10 +377,14 @@
 
       // compute preview dimensions that fit within PREVIEW_SIZE while preserving aspect ratio
       // dimensions must be powers of 2 for the FFT
-      function nextPow2(v) { return Math.max(1, 1 << Math.ceil(Math.log2(v))); }
+      function nearestPow2(v) {
+        const upper = 1 << Math.ceil(Math.log2(v));
+        const lower = upper >> 1;
+        return (lower < 1) ? upper : (v - lower <= upper - v ? lower : upper);
+      }
       const scale = Math.min(PREVIEW_SIZE / width, PREVIEW_SIZE / height);
-      const pw = nextPow2(Math.round(width * scale));
-      const ph = nextPow2(Math.round(height * scale));
+      const pw = nearestPow2(Math.round(width * scale));
+      const ph = nearestPow2(Math.round(height * scale));
 
       rawCanvas.width = width;
       rawCanvas.height = height;
@@ -442,6 +447,39 @@
         height: ph,
         blurryPixels: finalPixels
       };
+    }
+
+    // temporal interpolation using the Phase Shift Theorem
+    // To calculate a synthetic frame at a fractional offset Δt:
+    // let
+    // T: total number of samples in the temporal window
+    // k: current frequency bin index (0..T-1)
+    // Δt: the fractional time offset (e.g., 0.5 for halfway between frames)
+    // theta: (2 * PI * k * Δt) / T, representing the phase rotation
+    // phaseShift: e^(i * theta) = cos(theta) + i*sin(theta)
+    // this becomes:
+    // X_shifted[k] = X[k] * phaseShift
+    // reconstruction is then achieved through inverse fft
+    function getInterpolatedFrame(batchFreqs, fractionalIndex) {
+      const T = TEMPORAL_WINDOW;
+      const size = batchFreqs.length;
+      const pixels = new Uint8ClampedArray(size);
+
+      for (let i = 0; i < size; i++) {
+        const freqs = batchFreqs[i];
+
+        const shifted = freqs.map((c, k) => {
+          const theta = (2 * Math.PI * k * fractionalIndex) / T;
+          const rotation = new Complex(Math.cos(theta), Math.sin(theta));
+          return c.mul(rotation);
+        });
+
+        // inverse fft to get the value at this exact moment
+        const result = fftInverse(shifted);
+        // the first element is our interpolated value
+        pixels[i] = result[0].re;
+      }
+      return pixels;
     }
 
     class Complex {
@@ -694,6 +732,49 @@
       }
 
       return smoothedBatch;
+    }
+
+    function applyTemporalInterpolation(batch, multiplier = 4) {
+      const T = batch.length;
+      const totalPixels = batch[0].blurryPixels.length;
+      console.log('length', totalPixels);
+      const interpolatedBatch = [];
+
+      const batchFreqs = new Array(totalPixels);
+      const keep = 2;
+      for (let i = 0; i < totalPixels; i++) {
+        const timeline = batch.map(frame => new Complex(frame.blurryPixels[i], 0));
+        const timeFreqs = fft(timeline);
+
+        // temporal lowpass filter (i.e., keep only the slow motion bins)
+        // meaning we have interpolation by removing sudden jumps
+        for (let t = 0; t < T; t++) {
+          if (t > keep && t < T - keep) {
+            timeFreqs[t] = new Complex(0, 0);
+          }
+        } 
+        batchFreqs[i] = timeFreqs;
+      }
+
+      const totalFrames = T * multiplier;
+      for (let step = 0; step < totalFrames; step++) {
+        const fractionalIndex = step / multiplier;
+        const interpolatedPixels = getInterpolatedFrame(batchFreqs, fractionalIndex);
+
+        const t0 = batch[0].timestamp;
+        const tEnd = batch[T-1].timestamp;
+        const timestamp = t0 + (tEnd - t0) * (step / (totalFrames - 1));
+
+        interpolatedBatch.push({
+          timestamp,
+          width: batch[0].width,
+          height: batch[0].height,
+          stride: batch[0].width,
+          pixels: interpolatedPixels,
+        });
+      }
+
+      return interpolatedBatch;
     }
 
     function drawFrequencyMap(frequencies) {
