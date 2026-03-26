@@ -29,75 +29,27 @@
       position: relative;
     }
 
-    #controls div {
-      display: inline-block;
-      margin: 0px 20px 0 20px;
-      vertical-align: top;
+    #controls > div {
+      display: block;
+      margin: 10px 20px;
     }
 
     #controls p {
       margin: 0;
     }
 
-    #controls div div {
-      margin: 0 !important;
-      width: 35px;
-    }
-
-    #rulesContainer {
-      display: inline-block; 
-      text-align: left;
-    }
-
-    .centerVertically {
-      position: absolute;
-      top: 50%;
-      transform: translateY(-50%);
-    }
-
     .item1 { grid-area: header; }
-    .item2 { grid-area: plot; }
-    .item3 { grid-area: footer; }
-    .item4 { grid-area: screenshots; }
-    .item5 { grid-area: screenshotsTwo; }
-    .item6 { grid-area: screenshotsThree; }
-    .item7 { grid-area: screenshotsFour; }
 
     .grid-container {
       display: grid;
       grid-template-areas:
-        'header header header header header header header'
-        'plot plot plot plot plot plot plot'
-        'footer footer footer footer footer footer footer'
-        'screenshots screenshots screenshots screenshots screenshots screenshots screenshots'
-        'screenshotsTwo screenshotsTwo screenshotsTwo screenshotsTwo screenshotsTwo screenshotsTwo screenshotsTwo'
-        'screenshotsThree screenshotsThree screenshotsThree screenshotsThree screenshotsThree screenshotsThree screenshotsThree'
-        'screenshotsFour screenshotsFour screenshotsFour screenshotsFour screenshotsFour screenshotsFour screenshotsFour';
+        'header';
       grid-gap: 10px;
       padding: 10px;
-      max-height: 1424px;
     }
 
     .grid-container > div {
       text-align: center;
-      padding: 0 0;
-      font-size: 11pt;
-    }
-
-    .screenshots {
-      border: 1px solid #333333;
-    }
-
-    .item6 > div {
-      margin: 0px 7px;
-    }
-
-    .item7 > div {
-      margin-bottom: 20px;
-    }
-
-    .inline-images {
-      display: inline-block;
     }
 
     .github-corner {
@@ -154,13 +106,18 @@
         <div>
           <p>Pick Video</p>
           <input type="file" id="videoPicker" accept="video/mp4" />
-          <label for="seekBar" id="statusLabel">Waiting for video...</label>
-          <input type="range" id="seekBar" min="0" value="0" step="1" disabled style="with: 300px;" />
         </div>
         <div>
+          <label for="seekBar" id="statusLabel">Waiting for video...</label>
+          <br/>
+          <input type="range" id="seekBar" min="0" value="0" step="1" disabled style="width: 300px;" />
+        </div>
+        <div>
+          <p>Preview (blurred)</p>
           <canvas id="previewCanvas" />
         </div>
         <div>
+          <p>Frequency Spectrum (2D FFT)</p>
           <canvas id="frequencyCanvas" />
         </div>
       </div>
