@@ -170,6 +170,8 @@
     import * as MP4Box from 'https://esm.sh/mp4box@2.3.0';
 
     const PREVIEW_SIZE = 128;
+    // must be power of 2
+    const TEMPORAL_WINDOW = 16;
 
     const picker = document.getElementById("videoPicker");
     const slider = document.getElementById("seekBar");
@@ -187,6 +189,7 @@
     const freqCtx = freqCanvas.getContext('2d');
 
     let extractedFrames = [];
+    let temporalBuffer = [];
 
     picker.addEventListener('change', onChangeFile);
     slider.addEventListener('input', onSeek);
@@ -235,23 +238,26 @@
           console.log(`Blurring frame at ${Math.round(frame.timestamp / 1000)}ms...`);
           const blurryPreview = createBlurryPreview(rawFrameData, 0.15);
 
-          extractedFrames.push({
-            timestamp: blurryPreview.timestamp,
-            width: blurryPreview.width,  
-            height: blurryPreview.height, 
-            stride: blurryPreview.width,   
-            pixels: blurryPreview.blurryPixels,
-          });
+          temporalBuffer.push(blurryPreview);
+          console.log('pushing', temporalBuffer.length);
 
-          // decoders dont guarantee the order
-          extractedFrames.sort((a, b) => a.timestamp - b.timestamp);
+          if (temporalBuffer.length === TEMPORAL_WINDOW) {
+            console.log('here');
+            label.textContent = 'Applying temporal blue to batch';
 
-          label.textContent = `Extracted ${extractedFrames.length} keyframes`;
-          slider.max = extractedFrames.length - 1;
-          slider.disabled = false;
+            const smoothedBatch = applyTemporalBlur(temporalBuffer);
+            extractedFrames.push(...smoothedBatch);
+            // decoders dont guarantee the order
+            extractedFrames.sort((a, b) => a.timestamp - b.timestamp);
 
-          if (extractedFrames.length === 1) {
-            drawFrameToCanvas(0);
+            temporalBuffer = [];
+            label.textContent = `Extracted ${extractedFrames.length} keyframes`;
+            slider.max = extractedFrames.length - 1;
+            slider.disabled = false;
+
+            if (extractedFrames.length === smoothedBatch.length) {
+              drawFrameToCanvas(0);
+            }
           }
 
           frame.close();
@@ -307,11 +313,35 @@
       };
 
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         const arrayBuffer = e.target.result;
         arrayBuffer.fileStart = 0;
         mp4BoxFile.appendBuffer(arrayBuffer);
         mp4BoxFile.flush();
+
+        await decoder.flush();
+
+        // check for lefover frames in the buffer
+        if (temporalBuffer.length > 0) {
+          console.log('Finalizing last batch of frames');
+
+          while (temporalBuffer.length < TEMPORAL_WINDOW) {
+            temporalBuffer.push(temporalBuffer[temporalBuffer.length - 1]);
+          }
+
+          const finalBatch = applyTemporalBlur(temporalBuffer);
+          extractedFrames.push(...finalBatch);
+          extractedFrames.sort((a, b) => a.timestamp - b.timestamp);
+          slider.max = extractedFrames.length - 1;
+          slider.disabled = false;
+          label.textContent = `Processing complete. ${extractedFrames.length} frames ready`;
+
+          if (extractedFrames.length > 0) {
+            drawFrameToCanvas(0);
+          }
+
+          temporalBuffer = [];
+        }
       };
       reader.readAsArrayBuffer(file);
     }
@@ -508,6 +538,25 @@
       return output;
     }
 
+    // quick test for forward -> inverse naive dft
+    // const originalSignal = [
+    //   new Complex(1), new Complex(1), 
+    //   new Complex(1), new Complex(1)
+    // ];
+    //
+    // // forward Transform (Spatial Domain -> Frequency Domain)
+    // const frequencies = naiveDFT(originalSignal);
+    //
+    // // inverse Transform (Frequency Domain -> Spatial Domain)
+    // const reconstructedSignal = naiveIDFT(frequencies);
+    //
+    // console.log("Reconstructed Signal (Raw Complex Objects):");
+    // console.log(reconstructedSignal);
+    // 
+    // const finalPixels = reconstructedSignal.map(c => Math.round(c.re));
+    // console.log("Final Reconstructed Pixels:", finalPixels);
+
+
     // FFT (O(N log N))
     // because they are periodic, we can just calculate the 1st half
     // let
@@ -567,6 +616,28 @@
     //   console.log(`Bin ${k}: { re: ${c.re.toFixed(2)}, im: ${c.im.toFixed(2)} }`);
     // });
 
+    // the concept here is the same: flip the sign for im and divide by N
+    function fftInverse(samples) {
+      const N = samples.length;
+      // conjugate, fft, then conjugate and scale
+      const conjugated = samples.map(c => new Complex(c.re, -c.im));
+      const transformed = fft(conjugated);
+      return transformed.map(c => new Complex(c.re / N, -c.im / N));
+    }
+
+    // const originalSignal = [
+    //   new Complex(1, 0), 
+    //   new Complex(2, 0), 
+    //   new Complex(3, 0), 
+    //   new Complex(4, 0)
+    // ];
+    //
+    // const frequencies = fft(originalSignal);
+    // const reconstructed = fftInverse(frequencies);
+    //
+    // console.log("Original:", originalSignal.map(c => c.re));
+    // console.log("Reconstructed:", reconstructed.map(c => parseFloat(c.re.toFixed(10))));
+
     function fft2D(grid, inverse = false) {
       const rows = grid.length;
       const cols = grid[0].length;
@@ -592,6 +663,37 @@
       }
 
       return final;
+    }
+
+    function applyTemporalBlur(batch) {
+      const T = batch.length;
+      const totalPixels = batch[0].blurryPixels.length;
+      console.log('length', totalPixels);
+
+      const smoothedBatch = batch.map(f => ({timestamp: f.timestamp, width: f.width, height: f.height, stride: f.width, pixels: new Uint8ClampedArray(totalPixels)}));
+
+      const keep = 2;
+      for (let i = 0; i < totalPixels; i++) {
+        const timeline = batch.map(frame => new Complex(frame.blurryPixels[i], 0));
+        const timeFreqs = fft(timeline);
+
+        // temporal lowpass filter (i.e., keep only the slow motion bins)
+        // meaning we have interpolation by removing sudden jumps
+        for (let t = 0; t < T; t++) {
+          if (t > keep && t < T - keep) {
+            timeFreqs[t] = new Complex(0, 0);
+          }
+        } 
+
+        // inverse fft to go back to time space
+        const smoothedTimeline = fftInverse(timeFreqs);
+
+        for (let t = 0; t < T; t++) {
+          smoothedBatch[t].pixels[i] = Math.max(0, Math.min(255, smoothedTimeline[t].re));
+        }
+      }
+
+      return smoothedBatch;
     }
 
     function drawFrequencyMap(frequencies) {
@@ -626,24 +728,6 @@
       }
       freqCtx.putImageData(imageData, 0, 0);
     }
-
-    // quick test for forward -> inverse naive dft
-    // const originalSignal = [
-    //   new Complex(1), new Complex(1), 
-    //   new Complex(1), new Complex(1)
-    // ];
-    //
-    // // forward Transform (Spatial Domain -> Frequency Domain)
-    // const frequencies = naiveDFT(originalSignal);
-    //
-    // // inverse Transform (Frequency Domain -> Spatial Domain)
-    // const reconstructedSignal = naiveIDFT(frequencies);
-    //
-    // console.log("Reconstructed Signal (Raw Complex Objects):");
-    // console.log(reconstructedSignal);
-    //
-    // const finalPixels = reconstructedSignal.map(c => Math.round(c.re));
-    // console.log("Final Reconstructed Pixels:", finalPixels);
 
     function naiveDFT2D(grid) {
       const height = grid.length;
