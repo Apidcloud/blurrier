@@ -19,8 +19,8 @@
       image-rendering: crisp-edges;
 
       max-width: 256px;
-      max-height: 256px;
       width: 100%;
+      height: auto;
 
       background: #000;
       border: 1px solid #444;
@@ -239,6 +239,8 @@
 
     let extractedFrames = [];
     let temporalBuffer = [];
+    let decodedKeyframeCount = 0;
+    let videoDurationSec = 0;
 
     videoSelect.addEventListener('change', onSelectChange);
     picker.addEventListener('change', onChangeFile);
@@ -258,6 +260,7 @@
     async function loadExampleVideo(url) {
       label.textContent = 'Loading example video...';
       extractedFrames = [];
+      decodedKeyframeCount = 0;
       slider.disabled = true;
 
       const response = await fetch(url);
@@ -273,6 +276,7 @@
       }
 
       extractedFrames = [];
+      decodedKeyframeCount = 0;
       slider.disabled = true;
 
       processVideoFile(file);
@@ -309,6 +313,8 @@
             pixels,
           };
 
+          decodedKeyframeCount++;
+          label.textContent = `Decoding & blurring keyframe ${decodedKeyframeCount}...`;
           console.log(`Blurring frame at ${Math.round(frame.timestamp / 1000)}ms...`);
           const blurryPreview = createBlurryPreview(rawFrameData, 0.15);
           temporalBuffer.push(blurryPreview);
@@ -317,13 +323,13 @@
             // label.textContent = 'Applying temporal blur to batch';
             // const smoothedBatch = applyTemporalBlur(temporalBuffer);
             // extractedFrames.push(...smoothedBatch);
-            label.textContent = 'Applying temporal interpolation to batch';
+            label.textContent = `Interpolating batch (${decodedKeyframeCount} keyframes decoded so far)...`;
             const interpolatedBatch = applyTemporalInterpolation(temporalBuffer);
             // decoders dont guarantee the order
             extractedFrames.sort((a, b) => a.timestamp - b.timestamp);
 
             temporalBuffer = [];
-            label.textContent = `Extracted ${extractedFrames.length} keyframes`;
+            label.textContent = `${decodedKeyframeCount} keyframes decoded & blurred → ${extractedFrames.length} frames generated`;
             slider.max = extractedFrames.length - 1;
             slider.disabled = false;
 
@@ -342,7 +348,8 @@
       // demuxer
       mp4BoxFile.onReady = (info) => {
         const videoTrack = info.videoTracks[0];
-       
+        videoDurationSec = videoTrack.duration / videoTrack.timescale;
+
         let description = null;
         const track = mp4BoxFile.getTrackById(videoTrack.id);
         
@@ -416,7 +423,7 @@
           extractedFrames.sort((a, b) => a.timestamp - b.timestamp);
           slider.max = extractedFrames.length - 1;
           slider.disabled = false;
-          label.textContent = `Processing complete. ${extractedFrames.length} frames ready`;
+          label.textContent = `Done! ${decodedKeyframeCount} keyframes decoded & blurred → ${extractedFrames.length} frames generated via interpolation (${videoDurationSec.toFixed(1)}s video)`;
 
           if (extractedFrames.length > 0) {
             drawFrameToCanvas(0);
