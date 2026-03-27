@@ -994,7 +994,7 @@
     // T: total number of samples in the temporal window
     // k: current frequency bin index (0..T-1)
     // Δt: the fractional time offset (e.g., 0.5 for halfway between frames)
-    // theta: (2 * PI * k * Δt) / T, representing the phase rotation
+    // theta: (2 * π * k * Δt) / T, representing the phase rotation
     // phaseShift: e^(i * theta) = cos(theta) + i*sin(theta)
     // this becomes:
     // X_shifted[k] = X[k] * phaseShift
@@ -1008,12 +1008,13 @@
         const freqs = batchFreqs[i];
 
         // evaluate the IDFT directly at n = fractionalIndex (single sample):
-        // x[n] = (1/T) * SUM(k=0..T-1) X[k] * e^(i * 2 * PI * k * n / T)
+        // x[n] = (1/T) * ∑(k=0..T-1) X[k] * e^(i * 2 * π * k * n / T)
         // equivalent to phase-shifting all bins then running a full IFFT
         // and reading result[0], but O(T) instead of O(T log T)
         let sum = new Complex(0, 0);
         for (let k = 0; k < T; k++) {
-          const theta = (2 * Math.PI * k * fractionalIndex) / T;
+          const theta = 2 * Math.PI * k * fractionalIndex / T;
+          // e^(i·2πkn/T) phase rotation factor
           const rotation = new Complex(Math.cos(theta), Math.sin(theta));
           sum = sum.add(freqs[k].mul(rotation));
         }
@@ -1045,15 +1046,15 @@
       }
     }
 
-    // slow version O(N^2)
+    // DFT — slow version O(N²)
     // let 
     // N: total number of samples
     // k: current frequency bin index (0..N-1)
     // n: current time/spatial sample index (0..N-1)
     // using Euler's formula e^(-i*theta) = cos(theta) - i*sin(theta)
     // this becomes:
-    // X[k] = SUM(n=0 to N-1) { x[n] * e^(-i * 2*PI * k * n / N) }
-    // where theta = (2 * PI * k * n) / N
+    // X[k] = ∑(n=0 to N-1) { x[n] * e^(-i * 2*π * k * n / N) }
+    // where theta = (2 * π * k * n) / N
     function naiveDFT(samples) {
       const N = samples.length;
       const output = [];
@@ -1083,14 +1084,14 @@
     //
     // console.log(naiveDFT(signal));
 
-    // very similar to the original thing; we only flip the euler sign and divide by N
+    // very similar to naiveDFT; we only flip the Euler sign and divide by N
     // to scale the values back down to their original amplitude
     // let
     // N: total number of samples
     // X[k] : The k-th frequency bin (Input)
     // x[n] : The n-th sample of the reconstructed signal (Output)
     // this becomes:
-    // x[n] = (1/N) * SUM(k=0 to N-1) { X[k] * e^(i * 2*PI * k * n / N) }
+    // x[n] = (1/N) * ∑(k=0 to N-1) { X[k] * e^(i * 2*π * k * n / N) }
     function naiveIDFT(samples) {
       const N = samples.length;
       const output = [];
@@ -1142,9 +1143,9 @@
     // evens: even-indexed samples
     // odds: odd-indexed samples
     // k: current frequency bin index (0..N/2 - 1)
-    // theta: (2 * PI * k) / N, representing the phase rotation
+    // theta: (2 * π * k) / N, representing the phase rotation
     // twiddle: e^(-i * theta) * odds[k], representing the shifted odd component
-    // with the butterly/symmetry relationship:
+    // with the butterfly/symmetry relationship:
     // results[k] = evens[k] + twiddle
     // results[k + N/2] = evens[k] - twiddle
     function fft(samples) {
@@ -1194,7 +1195,12 @@
     //   console.log(`Bin ${k}: { re: ${c.re.toFixed(2)}, im: ${c.im.toFixed(2)} }`);
     // });
 
-    // the concept here is the same: flip the sign for im and divide by N
+    // the concept here is the same as naiveIDFT: flip the sign for im and divide by N
+    // let
+    // N: total number of samples
+    // X[k]: the k-th frequency bin (Input)
+    // x[n]: the n-th sample of the reconstructed signal (Output)
+    // conjugate each X[k], apply forward FFT, then conjugate and scale by 1/N
     function fftInverse(samples) {
       const N = samples.length;
       // conjugate, fft, then conjugate and scale
@@ -1243,6 +1249,12 @@
       return final;
     }
 
+    // for temporal blur we build a timeline for each pixel (its value across frames)
+    // and use forward fft to get its frequency representation.
+    // we then apply a lowpass filter, zeroing out high-frequency bins,
+    // which removes sudden jumps between frames, keeping only smooth motion.
+    // finally, we apply inverse fft to go back to the time domain,
+    // giving us a smoothed version of each frame in the batch.
     function applyTemporalBlur(batch) {
       const T = batch.length;
       const totalPixels = batch[0].blurryPixels.length;
@@ -1272,6 +1284,20 @@
       return smoothedBatch;
     }
 
+    // for interpolation we take the frequency domain and only use the real part.
+    // that is, we use the real axis (horizontal) and set the imaginary (vertical) to 0,
+    // because pixel intensities are just real numbers — there's no imaginary component
+    // to begin with (unlike e.g. MRI data where each sample is inherently complex).
+    // this gives us a timeline frequency.
+    // we then use forward fft on each pixel's temporal sequence,
+    // apply a lowpass filter as usual to clean it up
+    // and then get an interpolated frame:
+    // specifically, we send delta t (fractionalIndex) and apply idft (inverse dft) and phase shift
+    // the time frequencies we have, where phase shift is a rotation. In a signal/wave a rotation means
+    // it shifts to the left or to the right, so from the current iteration frame we essentially get a
+    // shifted frame (i.e., interpolated).
+    // the idft is evaluated at a single fractional sample index n
+    // (instead of computing the full inverse and only taking index 0)
     function applyTemporalInterpolation(batch, multiplier = 4, realCount = batch.length) {
       const T = batch.length;
       const totalPixels = batch[0].blurryPixels.length;

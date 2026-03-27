@@ -18,7 +18,7 @@ Decode sparse video keyframes, reconstruct smooth seek previews with 2D FFT spat
 
 3. **Spatial blur (2D FFT):** Each keyframe's Y-plane (grayscale) is downscaled to a power-of-2 preview size, transformed with a 2D FFT, lowpass-filtered (keeping ~15% of coefficients), and reconstructed via inverse FFT into a blurry but recognizable preview.
 
-4. **Temporal interpolation (1D FFT + Phase Shift Theorem):** Batches of keyframes are transformed along the time axis per-pixel. High-frequency temporal bins are discarded, and synthetic in-between frames are generated at fractional time offsets, producing 4x more frames than were actually decoded.
+4. **Temporal interpolation (1D FFT + Phase Shift Theorem):** Batches of keyframes are transformed along the time axis per-pixel. High-frequency temporal bins are discarded, and synthetic in-between frames are generated at fractional time offsets, producing multiplier x more frames than were actually decoded (default 4x).
 
 The broader target is **live streaming and WebRTC**: send only keyframes, or a sparse subset of encoded chunks, and let the client fill in the gaps with FFT-based interpolation.
 
@@ -28,7 +28,7 @@ Grayscale only, power-of-2 dimensions, and intentionally low-resolution preview 
 
 ## Future work
 
-Color (3× FFTs for YCbCr/RGB channels), denoising, and maybe higher resolution.
+Color (3x FFTs for YCbCr/RGB channels), denoising, and maybe higher resolution.
 
 ## Credits
 
