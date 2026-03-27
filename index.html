@@ -140,7 +140,7 @@
         gap: 12px;
       }
 
-      .mp4-preview-row {
+      #controls .mp4-preview-row {
         flex-wrap: wrap;
         gap: 12px;
       }
@@ -1823,7 +1823,7 @@
         state.temporalBuffer.push(blurryPreview);
 
         if (state.temporalBuffer.length === TEMPORAL_WINDOW) {
-          appendWebRTCFrames(createGeneratedFrames(state.temporalBuffer));
+          appendWebRTCFrames(createGeneratedFrames(state.temporalBuffer, state.temporalBuffer.length, state.frameStride));
           state.temporalBuffer = [];
         }
       } finally {
@@ -1851,7 +1851,7 @@
       }
 
       if (state.temporalBuffer.length > 0) {
-        appendWebRTCFrames(finalizeTemporalInterpolationBatch(state.temporalBuffer));
+        appendWebRTCFrames(finalizeTemporalInterpolationBatch(state.temporalBuffer, state.frameStride));
         state.temporalBuffer = [];
       }
 
