@@ -624,7 +624,7 @@
     const webrtcPreviewCtx = webrtcPreviewCanvas.getContext('2d');
     const webrtcSourceVideo = document.getElementById('webrtcSourceVideo');
     const webrtcSourceCanvas = new OffscreenCanvas(1, 1);
-    const webrtcSourceCanvasCtx = webrtcSourceCanvas.getContext('2d', { willReadFrequently: true });
+    const webrtcSourceCtx = webrtcSourceCanvas.getContext('2d', { willReadFrequently: true });
 
     let extractedFrames = [];
     let temporalBuffer = [];
@@ -694,7 +694,7 @@
         return;
       }
 
-      syncGroundTruthVideoToTime(pendingGroundTruthTimeSec);
+      syncGroundTruthVideoSec(pendingGroundTruthTimeSec);
     }
 
     function setGroundTruthVideoSource(file) {
@@ -712,15 +712,15 @@
       groundTruthVideo.load();
     }
 
-    function syncGroundTruthVideoToTimestamp(timestampUs) {
+    function syncGroundTruthVideoUs(timestampUs) {
       if (!Number.isFinite(timestampUs)) {
         return;
       }
 
-      syncGroundTruthVideoToTime(timestampUs / 1000000);
+      syncGroundTruthVideoSec(timestampUs / 1000000);
     }
 
-    function syncGroundTruthVideoToTime(nextTimeSec) {
+    function syncGroundTruthVideoSec(nextTimeSec) {
       pendingGroundTruthTimeSec = nextTimeSec;
 
       if (!Number.isFinite(nextTimeSec) || Number.isNaN(groundTruthVideo.duration)) {
@@ -881,7 +881,7 @@
       }
 
       paintGrayscaleFrame(extractedFrames[index], canvas, ctx);
-      syncGroundTruthVideoToTimestamp(extractedFrames[index].timestamp);
+      syncGroundTruthVideoUs(extractedFrames[index].timestamp);
     }
 
     function paintGrayscaleFrame(frameData, targetCanvas, targetCtx) {
@@ -1481,7 +1481,7 @@
       paintGrayscaleFrame(frame, webrtcPreviewCanvas, webrtcPreviewCtx);
 
       if (webrtcState.receiverFinalized) {
-        syncGroundTruthVideoToTimestamp(frame.timestamp);
+        syncGroundTruthVideoUs(frame.timestamp);
       }
 
       document.querySelectorAll('#webrtcPreviewStrip .webrtc-thumb').forEach((thumb) => {
@@ -1706,7 +1706,7 @@
 
       webrtcSourceCanvas.width = webrtcSourceVideo.videoWidth;
       webrtcSourceCanvas.height = webrtcSourceVideo.videoHeight;
-      webrtcSourceCanvasCtx.clearRect(0, 0, webrtcSourceCanvas.width, webrtcSourceCanvas.height);
+      webrtcSourceCtx.clearRect(0, 0, webrtcSourceCanvas.width, webrtcSourceCanvas.height);
 
       state.handleEnded = () => {
         stopWebRTCLoopback().catch((error) => console.error('Loopback stop error', error));
@@ -1739,7 +1739,7 @@
         }
 
         const timestamp = Math.round(metadata.mediaTime * 1000000);
-        webrtcSourceCanvasCtx.drawImage(
+        webrtcSourceCtx.drawImage(
           webrtcSourceVideo,
           0,
           0,
