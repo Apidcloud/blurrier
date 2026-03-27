@@ -12,8 +12,6 @@ Decode sparse video keyframes, reconstruct smooth scrub previews with 2D FFT spa
 
 ## How it works
 
-The app currently exposes two delivery paths:
-
 1. **Local MP4 demo:** [MP4Box](https://github.com/gpac/mp4box.js) demuxes a local MP4, extracts keyframes, and feeds them into the blur + interpolation pipeline.
 
 2. **WebRTC loopback demo:** Encoded keyframes are sent through a local DataChannel loopback, then reconstructed on the receiver with the same blur + interpolation pipeline.

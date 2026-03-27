@@ -104,6 +104,14 @@
     }
 
     @media (max-width: 600px) {
+      .webrtc-toolbar {
+        flex-direction: column;
+      }
+
+      .webrtc-toolbar-group {
+        width: 100%;
+      }
+
       #credits {
         position: static;
         text-align: center;
@@ -231,6 +239,14 @@
       margin-bottom: 12px;
     }
 
+    .webrtc-toolbar-group {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: nowrap;
+      gap: 8px;
+    }
+
     .webrtc-filmstrip {
       width: min(100%, 720px);
       box-sizing: border-box;
@@ -337,8 +353,17 @@
       margin: 0 auto;
     }
 
-    #webrtcSourceVideo {
-      display: none;
+    #webrtcSourceVideo,
+    #webrtcSourceCanvas {
+      position: fixed;
+      width: 2px;
+      height: 2px;
+      opacity: 0;
+      pointer-events: none;
+      overflow: hidden;
+      clip-path: inset(50%);
+      left: 0;
+      top: 0;
     }
 
     .item1 { grid-area: header; }
@@ -444,9 +469,11 @@
           <p style="max-width: 700px; margin: 0 auto 12px;">Send sparse keyframes through a local DataChannel, then reconstruct smooth scrub previews on the receiver with the same FFT blur and temporal interpolation pipeline.</p>
           <div class="webrtc-toolbar">
             <button id="webrtcToggle" type="button">Start Loopback Demo</button>
-            <label for="nthFrameInput">Send every</label>
-            <input type="number" id="nthFrameInput" min="1" step="1" value="5" />
-            <span>frame</span>
+            <div class="webrtc-toolbar-group">
+              <label for="nthFrameInput">Send every</label>
+              <input type="number" id="nthFrameInput" min="1" step="1" value="5" />
+              <span>frame</span>
+            </div>
           </div>
           <p id="webrtcStats">Sent: 0 keyframes (0.0 KB) → Generated: 0 frames | Savings: 0.0% frames skipped</p>
           <p class="webrtc-note">Blurred preview thumbnails. Red borders mark transmitted keyframes.</p>
@@ -472,6 +499,7 @@
             </div>
           </div>
           <video id="webrtcSourceVideo" muted playsinline preload="auto"></video>
+          <canvas id="webrtcSourceCanvas"></canvas>
         </div>
       </div>
     </div>
@@ -482,6 +510,10 @@
     const PREVIEW_SIZE = 256;
     // must be power of 2
     const TEMPORAL_WINDOW = 8;
+
+    const LOOPBACK_MESSAGE_CHUNK = 1;
+    const LOOPBACK_MESSAGE_END = 2;
+    const LOOPBACK_MAX_BUFFERED_AMOUNT = 2_000_000;
 
     const videoSelect = document.getElementById("videoSelect");
     const picker = document.getElementById("videoPicker");
@@ -511,10 +543,8 @@
     const webrtcPreviewCanvas = document.getElementById('webrtcPreviewCanvas');
     const webrtcPreviewCtx = webrtcPreviewCanvas.getContext('2d');
     const webrtcSourceVideo = document.getElementById('webrtcSourceVideo');
-
-    const LOOPBACK_MESSAGE_CHUNK = 1;
-    const LOOPBACK_MESSAGE_END = 2;
-    const LOOPBACK_MAX_BUFFERED_AMOUNT = 2_000_000;
+    const webrtcSourceCanvas = document.getElementById('webrtcSourceCanvas');
+    const webrtcSourceCanvasCtx = webrtcSourceCanvas.getContext('2d', { willReadFrequently: true });
 
     let extractedFrames = [];
     let temporalBuffer = [];
@@ -1537,6 +1567,10 @@
         codedHeight: webrtcSourceVideo.videoHeight,
       });
 
+      webrtcSourceCanvas.width = webrtcSourceVideo.videoWidth;
+      webrtcSourceCanvas.height = webrtcSourceVideo.videoHeight;
+      webrtcSourceCanvasCtx.clearRect(0, 0, webrtcSourceCanvas.width, webrtcSourceCanvas.height);
+
       state.handleEnded = () => {
         stopWebRTCLoopback().catch((error) => console.error('Loopback stop error', error));
       };
@@ -1568,7 +1602,14 @@
         }
 
         const timestamp = Math.round(metadata.mediaTime * 1000000);
-        const frame = new VideoFrame(webrtcSourceVideo, { timestamp });
+        webrtcSourceCanvasCtx.drawImage(
+          webrtcSourceVideo,
+          0,
+          0,
+          webrtcSourceCanvas.width,
+          webrtcSourceCanvas.height,
+        );
+        const frame = new VideoFrame(webrtcSourceCanvas, { timestamp });
 
         try {
           state.encoder.encode(frame, { keyFrame: true });
