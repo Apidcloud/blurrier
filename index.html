@@ -183,15 +183,12 @@
 
     .mp4-toolbar {
       display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
       gap: 16px;
       align-items: start;
     }
 
-    .mp4-toolbar {
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    }
-
-    .mp4-preview-row {
+    #controls .mp4-preview-row {
       display: flex;
       flex-wrap: nowrap;
       justify-content: center;
@@ -241,6 +238,10 @@
       margin: 16px auto 0;
     }
 
+    #webrtcScrub {
+      width: 100%;
+    }
+
     .mp4-preview-row > div,
     .webrtc-large-canvases > div {
       display: flex;
@@ -263,11 +264,7 @@
       border-top: 1px solid #ddd;
     }
 
-    #webrtc-demo h2 {
-      margin: 0 0 10px;
-      font-size: 18px;
-    }
-
+    #webrtc-demo h2,
     #mp4-demo h2 {
       margin: 0 0 10px;
       font-size: 18px;
@@ -280,6 +277,12 @@
 
     #webrtcStats {
       margin: 0 0 12px;
+    }
+
+    #controls .webrtc-description {
+      max-width: 700px;
+      margin: 0 auto 12px;
+      text-align: center;
     }
 
     .webrtc-note {
@@ -525,7 +528,7 @@
           <br/>
           <input type="range" id="seekBar" min="0" value="0" step="1" disabled />
         </div>
-        <div class="mp4-preview-row" style="display: flex; flex-wrap: nowrap; justify-content: center; align-items: flex-start; gap: 20px;">
+        <div class="mp4-preview-row">
           <div>
             <p class="canvas-panel-title">Preview (blurred)</p>
             <canvas id="previewCanvas"></canvas>
@@ -544,7 +547,7 @@
         </div>
         <div id="webrtc-demo">
           <h2>WebRTC Loopback Demo</h2>
-          <p style="max-width: 700px; margin: 0 auto 12px;">Send sparse keyframes through a local DataChannel, then reconstruct smooth seek previews on the receiver with the same FFT blur and temporal interpolation pipeline.</p>
+          <p class="webrtc-description">Send sparse keyframes through a local DataChannel, then reconstruct smooth seek previews on the receiver with the same FFT blur and temporal interpolation pipeline.</p>
           <div class="webrtc-toolbar">
             <button id="webrtcToggle" type="button">Start Loopback Demo</button>
             <div class="webrtc-toolbar-group">
@@ -566,7 +569,7 @@
             </div>
           </div>
           <div class="webrtc-scrub-wrap">
-            <input type="range" id="webrtcScrub" min="0" max="0" value="0" step="1" disabled style="width: 100%;" />
+            <input type="range" id="webrtcScrub" min="0" max="0" value="0" step="1" disabled />
             <p class="webrtc-scrub-note">Once streaming is complete, this seek bar also controls the ground truth view so you can compare both at the same time.</p>
           </div>
           <div class="webrtc-large-canvases">
@@ -1243,8 +1246,6 @@
     function applyTemporalBlur(batch) {
       const T = batch.length;
       const totalPixels = batch[0].blurryPixels.length;
-      console.log('length', totalPixels);
-
       const smoothedBatch = batch.map(f => ({timestamp: f.timestamp, width: f.width, height: f.height, stride: f.width, pixels: new Uint8ClampedArray(totalPixels)}));
 
       const keep = 2;
@@ -1274,7 +1275,6 @@
     function applyTemporalInterpolation(batch, multiplier = 4, realCount = batch.length) {
       const T = batch.length;
       const totalPixels = batch[0].blurryPixels.length;
-      console.log('length', totalPixels);
       const interpolatedBatch = [];
 
       const batchFreqs = new Array(totalPixels);
