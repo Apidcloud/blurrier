@@ -353,8 +353,7 @@
       margin: 0 auto;
     }
 
-    #webrtcSourceVideo,
-    #webrtcSourceCanvas {
+    #webrtcSourceVideo {
       position: fixed;
       width: 2px;
       height: 2px;
@@ -499,7 +498,6 @@
             </div>
           </div>
           <video id="webrtcSourceVideo" muted playsinline preload="auto"></video>
-          <canvas id="webrtcSourceCanvas"></canvas>
         </div>
       </div>
     </div>
@@ -543,7 +541,7 @@
     const webrtcPreviewCanvas = document.getElementById('webrtcPreviewCanvas');
     const webrtcPreviewCtx = webrtcPreviewCanvas.getContext('2d');
     const webrtcSourceVideo = document.getElementById('webrtcSourceVideo');
-    const webrtcSourceCanvas = document.getElementById('webrtcSourceCanvas');
+    const webrtcSourceCanvas = new OffscreenCanvas(1, 1);
     const webrtcSourceCanvasCtx = webrtcSourceCanvas.getContext('2d', { willReadFrequently: true });
 
     let extractedFrames = [];
