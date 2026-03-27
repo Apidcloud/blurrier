@@ -15,6 +15,7 @@
     }
 
     canvas {
+      display: block;
       image-rendering: pixelated; 
       image-rendering: crisp-edges;
 
@@ -173,7 +174,11 @@
     }
 
     .mp4-status-wrap {
-      padding-top: 12px;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+      margin: 0 auto 16px;
+      padding-top: 6px;
     }
 
     .mp4-toolbar {
@@ -194,12 +199,58 @@
       gap: 20px;
     }
 
+    .mp4-reference-row {
+      margin: 20px 20px 10px;
+      padding-top: 6px;
+      border-top: 1px solid #ddd;
+    }
+
+    .mp4-reference-panel {
+      width: min(100%, 600px);
+      margin: 0 auto;
+      color: #666;
+    }
+
+    .mp4-reference-panel p {
+      margin: 0;
+    }
+
+    .mp4-reference-title {
+      color: #000;
+      margin-bottom: 8px;
+    }
+
+    .mp4-reference-note {
+      margin-top: 8px;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .mp4-reference-video {
+      display: block;
+      width: min(100%, 220px);
+      margin: 0 auto;
+      height: auto;
+      background: #000;
+      border: 1px solid #444;
+    }
+
+    #seekBar {
+      display: block;
+      width: min(100%, 400px);
+      margin: 16px auto 0;
+    }
+
     .mp4-preview-row > div,
     .webrtc-large-canvases > div {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 10px;
+      gap: 0;
+    }
+
+    .canvas-panel-title {
+      margin-bottom: 8px;
     }
 
     .mp4-preview-row > div {
@@ -217,6 +268,11 @@
       font-size: 18px;
     }
 
+    #mp4-demo h2 {
+      margin: 0 0 10px;
+      font-size: 18px;
+    }
+
     #webrtcStats,
     .webrtc-note {
       color: #666;
@@ -228,6 +284,19 @@
 
     .webrtc-note {
       margin: 0 0 10px;
+    }
+
+    .webrtc-scrub-note {
+      display: block;
+      width: 100%;
+      max-width: 720px;
+      box-sizing: border-box;
+      margin: 0 auto;
+      padding-top: 6px;
+      text-align: center;
+      color: #666;
+      font-size: 13px;
+      line-height: 1.4;
     }
 
     .webrtc-toolbar {
@@ -429,7 +498,7 @@
   <div class="grid-container">
     <div class="item1">
       <h1 id="pageTitle">Blurrier - Fourier Seek</h1>
-      <p style="max-width: 600px; margin: 0 auto;">Decode sparse video keyframes, reconstruct smooth scrub previews with 2D FFT spatial blur and 1D FFT temporal interpolation, entirely on the client-side. Includes both an MP4 keyframe demo and a WebRTC loopback demo for sparse preview streaming.</p>
+      <p style="max-width: 600px; margin: 0 auto;">Decode sparse video keyframes, reconstruct smooth seek previews with 2D FFT spatial blur and 1D FFT temporal interpolation, entirely on the client-side. Includes both an MP4 keyframe demo and a WebRTC loopback demo for sparse preview streaming.</p>
 
       <div id="credits">
         <p>Inspired by <a href="https://x.com/kyndinfo" target="_blank">kyndinfo</a>'s article on <a href="https://kyndinfo.notion.site/Fourier-Series-caa91c112da043888cbe45f18392caff" target="_blank">Fourier Series</a></p>
@@ -447,25 +516,35 @@
             </select>
             <input type="file" id="videoPicker" accept="video/mp4" style="display: none;" />
           </div>
-          <div class="mp4-status-wrap">
-            <label for="seekBar" id="statusLabel">Waiting for video...</label>
-            <br/>
-            <input type="range" id="seekBar" min="0" value="0" step="1" disabled style="width: 100%; max-width: 400px; margin-top: 16px;" />
-          </div>
+        </div>
+        <div id="mp4-demo">
+          <h2>MP4Box Demo</h2>
+        </div>
+        <div class="mp4-status-wrap">
+          <label for="seekBar" id="statusLabel">Waiting for video...</label>
+          <br/>
+          <input type="range" id="seekBar" min="0" value="0" step="1" disabled />
         </div>
         <div class="mp4-preview-row" style="display: flex; flex-wrap: nowrap; justify-content: center; align-items: flex-start; gap: 20px;">
           <div>
-            <p>Preview (blurred)</p>
+            <p class="canvas-panel-title">Preview (blurred)</p>
             <canvas id="previewCanvas"></canvas>
           </div>
           <div>
-            <p>Frequency Spectrum</p>
+            <p class="canvas-panel-title">Frequency Spectrum</p>
             <canvas id="frequencyCanvas"></canvas>
+          </div>
+        </div>
+        <div class="mp4-reference-row">
+          <div class="mp4-reference-panel">
+            <p class="mp4-reference-title">Ground truth (original video)</p>
+            <video id="groundTruthVideo" class="mp4-reference-video" muted playsinline preload="metadata"></video>
+            <p class="mp4-reference-note">Reference only. Reconstruction uses sparse keyframes and generates in-between preview frames.</p>
           </div>
         </div>
         <div id="webrtc-demo">
           <h2>WebRTC Loopback Demo</h2>
-          <p style="max-width: 700px; margin: 0 auto 12px;">Send sparse keyframes through a local DataChannel, then reconstruct smooth scrub previews on the receiver with the same FFT blur and temporal interpolation pipeline.</p>
+          <p style="max-width: 700px; margin: 0 auto 12px;">Send sparse keyframes through a local DataChannel, then reconstruct smooth seek previews on the receiver with the same FFT blur and temporal interpolation pipeline.</p>
           <div class="webrtc-toolbar">
             <button id="webrtcToggle" type="button">Start Loopback Demo</button>
             <div class="webrtc-toolbar-group">
@@ -487,13 +566,12 @@
             </div>
           </div>
           <div class="webrtc-scrub-wrap">
-            <label for="webrtcScrub">Scrub reconstructed frames</label>
-            <br/>
             <input type="range" id="webrtcScrub" min="0" max="0" value="0" step="1" disabled style="width: 100%;" />
+            <p class="webrtc-scrub-note">Once streaming is complete, this seek bar also controls the ground truth view so you can compare both at the same time.</p>
           </div>
           <div class="webrtc-large-canvases">
             <div>
-              <p>Selected Preview</p>
+              <p class="canvas-panel-title">Selected Preview</p>
               <canvas id="webrtcPreviewCanvas"></canvas>
             </div>
           </div>
@@ -519,6 +597,7 @@
     const label = document.getElementById('statusLabel');
     const canvas = document.getElementById("previewCanvas");
     const ctx = canvas.getContext("2d");
+    const groundTruthVideo = document.getElementById('groundTruthVideo');
 
     const rawCanvas = new OffscreenCanvas(1, 1); 
     const rawCtx = rawCanvas.getContext('2d', { willReadFrequently: true });
@@ -549,6 +628,8 @@
     let decodedKeyframeCount = 0;
     let videoDurationSec = 0;
     let webrtcState = null;
+    let groundTruthSourceUrl = '';
+    let pendingGroundTruthTimeSec = null;
 
     videoSelect.addEventListener('change', onSelectChange);
     picker.addEventListener('change', onChangeFile);
@@ -558,6 +639,7 @@
     webrtcFilmstrip.addEventListener('scroll', updateWebRTCScrollbar);
     webrtcScrollbarTrack.addEventListener('pointerdown', onWebRTCScrollbarPointerDown);
     window.addEventListener('resize', updateWebRTCScrollbar);
+    groundTruthVideo.addEventListener('loadedmetadata', onGroundTruthLoadedMetadata);
 
     function onSelectChange(e) {
       const value = e.target.value;
@@ -579,6 +661,7 @@
       const response = await fetch(url);
       const blob = await response.blob();
       const file = new File([blob], url.split('/').pop(), { type: 'video/mp4' });
+      setGroundTruthVideoSource(file);
       processVideoFile(file);
     }
 
@@ -592,6 +675,7 @@
       decodedKeyframeCount = 0;
       slider.disabled = true;
 
+      setGroundTruthVideoSource(file);
       processVideoFile(file);
     }
 
@@ -600,6 +684,56 @@
     function onSeek(e) {
       const frameIndex = parseInt(e.target.value, 10);
       drawFrameToCanvas(frameIndex);
+    }
+
+    function onGroundTruthLoadedMetadata() {
+      if (pendingGroundTruthTimeSec === null) {
+        return;
+      }
+
+      syncGroundTruthVideoToTime(pendingGroundTruthTimeSec);
+    }
+
+    function setGroundTruthVideoSource(file) {
+      pendingGroundTruthTimeSec = null;
+      groundTruthVideo.pause();
+      groundTruthVideo.removeAttribute('src');
+      groundTruthVideo.load();
+
+      if (groundTruthSourceUrl) {
+        URL.revokeObjectURL(groundTruthSourceUrl);
+      }
+
+      groundTruthSourceUrl = URL.createObjectURL(file);
+      groundTruthVideo.src = groundTruthSourceUrl;
+      groundTruthVideo.load();
+    }
+
+    function syncGroundTruthVideoToTimestamp(timestampUs) {
+      if (!Number.isFinite(timestampUs)) {
+        return;
+      }
+
+      syncGroundTruthVideoToTime(timestampUs / 1000000);
+    }
+
+    function syncGroundTruthVideoToTime(nextTimeSec) {
+      pendingGroundTruthTimeSec = nextTimeSec;
+
+      if (!Number.isFinite(nextTimeSec) || Number.isNaN(groundTruthVideo.duration)) {
+        return;
+      }
+
+      const safeMaxTime = Math.max(groundTruthVideo.duration - 0.001, 0);
+      const clampedTime = Math.min(Math.max(nextTimeSec, 0), safeMaxTime);
+
+      if (Math.abs(groundTruthVideo.currentTime - clampedTime) < 0.033) {
+        pendingGroundTruthTimeSec = null;
+        return;
+      }
+
+      groundTruthVideo.currentTime = clampedTime;
+      pendingGroundTruthTimeSec = null;
     }
 
     // simulate WebRTC/live streaming where we would get an encoded video chunk
@@ -744,6 +878,7 @@
       }
 
       paintGrayscaleFrame(extractedFrames[index], canvas, ctx);
+      syncGroundTruthVideoToTimestamp(extractedFrames[index].timestamp);
     }
 
     function paintGrayscaleFrame(frameData, targetCanvas, targetCtx) {
@@ -1344,6 +1479,10 @@
       webrtcState.selectedIndex = index;
       webrtcScrub.value = index;
       paintGrayscaleFrame(frame, webrtcPreviewCanvas, webrtcPreviewCtx);
+
+      if (webrtcState.receiverFinalized) {
+        syncGroundTruthVideoToTimestamp(frame.timestamp);
+      }
 
       document.querySelectorAll('#webrtcPreviewStrip .webrtc-thumb').forEach((thumb) => {
         thumb.classList.toggle('is-selected', Number(thumb.dataset.index) === index);

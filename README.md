@@ -8,7 +8,7 @@
 
 [Live Demo](https://apidcloud.github.io/blurrier/)
 
-Decode sparse video keyframes, reconstruct smooth scrub previews with 2D FFT spatial blur and 1D FFT temporal interpolation, entirely on the client-side. Includes both an MP4 keyframe demo and a WebRTC loopback demo for sparse preview streaming.
+Decode sparse video keyframes, reconstruct smooth seek previews with 2D FFT spatial blur and 1D FFT temporal interpolation, entirely on the client-side. Includes both an MP4 keyframe demo and a WebRTC loopback demo for sparse preview streaming.
 
 ## How it works
 
