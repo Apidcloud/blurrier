@@ -1335,7 +1335,9 @@
       const paddedBatch = batch.slice();
       let mirror = 1;
       while (paddedBatch.length < TEMPORAL_WINDOW) {
-        // Mirror padding avoids repeating the last frame, which reduces ringing at the tail.
+        // Naively repeating the last frame (e.g. paddedBatch.push(paddedBatch[paddedBatch.length - 1]))
+        // would suffer from Gibbs-phenomenon ringing. Mirror padding avoids this, so
+        // 5 real frames [0,1,2,3,4] pad to [0,1,2,3,4,3,2,1] instead of [0,1,2,3,4,4,4,4].
         const idx = Math.max(0, realCount - 1 - mirror);
         paddedBatch.push(paddedBatch[idx]);
         mirror++;
